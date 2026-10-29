@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Дневник тренировок</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+/* Layout: one narrow logbook column — workout switcher, set rows like a paper gym log, self-check, then history.
+   Colors follow the Telegram theme when opened inside Telegram, with own fallbacks otherwise. */
+:root{
+  --bg:var(--tg-theme-secondary-bg-color,#f2f1ed);
+  --surface:var(--tg-theme-section-bg-color,var(--tg-theme-bg-color,#ffffff));
+  --ink:var(--tg-theme-text-color,#1c1e1d);
+  --muted:var(--tg-theme-hint-color,#686b67);
+  --line:color-mix(in srgb,var(--muted) 30%,transparent);
+  --accent:var(--tg-theme-button-color,#b8780b);
+  --accent-ink:var(--tg-theme-button-text-color,#ffffff);
+  --accent-soft:color-mix(in srgb,var(--accent) 14%,var(--surface));
+  --good:#2c9a5c; --bad:var(--tg-theme-destructive-text-color,#d0392e);
+  --f-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-num:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:var(--tg-theme-secondary-bg-color,#151615);
+  --surface:var(--tg-theme-section-bg-color,var(--tg-theme-bg-color,#1e201f));
+  --ink:var(--tg-theme-text-color,#ebeae5);
+  --muted:var(--tg-theme-hint-color,#999b96);
+  --accent:var(--tg-theme-button-color,#e0a238);
+  --accent-ink:var(--tg-theme-button-text-color,#151615); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:var(--tg-theme-secondary-bg-color,#151615);
+  --surface:var(--tg-theme-section-bg-color,var(--tg-theme-bg-color,#1e201f));
+  --ink:var(--tg-theme-text-color,#ebeae5);
+  --muted:var(--tg-theme-hint-color,#999b96);
+  --accent:var(--tg-theme-button-color,#e0a238);
+  --accent-ink:var(--tg-theme-button-text-color,#151615); color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px));
+  padding-top:calc(14px + env(safe-area-inset-top,0px));padding-bottom:calc(40px + env(safe-area-inset-bottom,0px))}
+[hidden]{display:none!important}
+.wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1,h2{margin:0;font-weight:800;letter-spacing:-.01em;text-wrap:balance}
+h1{font-size:1.6rem;line-height:1.1}
+h2{font-size:1.15rem}
+.sub{color:var(--muted);margin:4px 0 0;font-size:.9rem}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--line);padding:4px;border-radius:12px}
+.seg button{font:600 .95rem var(--f-body);border:0;border-radius:9px;padding:10px 4px;background:transparent;color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.seg small{display:block;font-weight:400;color:var(--muted);font-size:.75rem}
+.f{display:flex;flex-direction:column;gap:5px;font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+input{font:inherit;font-size:16px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 10px;width:100%;min-width:0}
+input::placeholder{color:var(--muted);opacity:.7}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=date]{width:auto}
+.list{display:flex;flex-direction:column;gap:10px}
+.ex{background:var(--surface);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.ex-h{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+.ex-n{font-weight:600}
+.tgt{font-family:var(--f-num);font-size:.8rem;color:var(--accent);white-space:nowrap}
+.sets{display:flex;flex-direction:column;gap:6px}
+.row,.units{display:grid;grid-template-columns:20px 1fr 14px 1fr;gap:8px;align-items:center}
+.row .i{font-family:var(--f-num);color:var(--muted);font-size:.85rem;text-align:right}
+.row .x{color:var(--muted);text-align:center}
+.row input{font-family:var(--f-num);text-align:center;font-variant-numeric:tabular-nums}
+.units{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;text-align:center}
+.last{font-size:.8rem;color:var(--muted)}
+.last b{font-family:var(--f-num);font-weight:500;color:var(--ink)}
+.check{display:flex;flex-direction:column;gap:14px;background:var(--surface);border-radius:14px;padding:14px}
+.scale{display:grid;grid-template-columns:repeat(11,1fr);gap:3px}
+.scale.ten{grid-template-columns:repeat(10,1fr)}
+.scale button{font:500 .85rem var(--f-num);padding:9px 0;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:7px;cursor:pointer;min-width:0}
+.scale button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.two{display:grid;grid-template-columns:130px 1fr;gap:12px}
+@media (max-width:420px){.two{grid-template-columns:1fr}}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{font:600 1rem var(--f-body);border-radius:11px;padding:13px 18px;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);flex:1 1 200px}
+.btn.sm{font-size:.85rem;padding:7px 11px;border-radius:8px}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.msg{font-size:.88rem;min-height:1.2em}
+.msg.ok{color:var(--good)} .msg.err{color:var(--bad)}
+.note{font-size:.85rem;color:var(--ink);background:var(--accent-soft);border-radius:10px;padding:9px 12px}
+details.h{background:var(--surface);border-radius:12px}
+details.h summary{list-style:none;cursor:pointer;padding:12px 14px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:baseline}
+details.h summary::-webkit-details-marker{display:none}
+.hd{font-family:var(--f-num);font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.hw{font-weight:600}
+.hm{font-family:var(--f-num);font-size:.78rem;color:var(--muted);white-space:nowrap}
+.wait{color:var(--accent);font-family:var(--f-body)}
+.hb{padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+.hb pre{margin:0;white-space:pre-wrap;font:.85rem/1.55 var(--f-num);color:var(--ink);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+.empty{color:var(--muted);font-size:.9rem;padding:14px;border:1px dashed var(--line);border-radius:12px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Дневник тренировок</h1>
+      <p class="sub">Вес и повторы по подходам. Серые подсказки — прошлый раз.</p>
+    </div>
+    <label class="f" for="date">Дата<input type="date" id="date"></label>
+  </header>
+
+  <nav class="seg" id="seg" aria-label="Тренировка">
+    <button type="button" data-w="A">Кач A<small>пн</small></button>
+    <button type="button" data-w="F">Функционал<small>ср</small></button>
+    <button type="button" data-w="B">Кач B<small>пт</small></button>
+  </nav>
+
+  <main id="exlist" class="list"></main>
+
+  <section class="check" aria-label="Самочувствие">
+    <h2>Как прошло</h2>
+    <div class="f">Тяжесть тренировки, 1–10<div class="scale ten" id="rpe"></div></div>
+    <div class="f">Колено: 0 — не болит, 10 — сильная боль<div class="scale" id="knee"></div></div>
+    <div class="two">
+      <label class="f" for="bw">Вес тела, кг<input id="bw" inputmode="decimal" placeholder="раз в неделю"></label>
+      <label class="f" for="nt">Заметка<input id="nt" placeholder="что было тяжело, что заметил"></label>
+    </div>
+    <div class="actions">
+      <button class="btn pri" type="button" id="save">Сохранить тренировку</button>
+      <button class="btn" type="button" id="clear">Очистить</button>
+    </div>
+    <div class="msg" id="msg" role="status"></div>
+    <div class="note" id="mode" hidden></div>
+  </section>
+
+  <section class="list" aria-label="История">
+    <h2>История</h2>
+    <div class="list" id="hist"><div class="empty">Загружаю записи…</div></div>
+  </section>
+</div>
+
+<script>
+const PLAN = {
+  A:{name:"Кач A", ex:[
+    {n:"Гоблет-присед", s:4, t:"8–10"},
+    {n:"Жим штанги лёжа", s:4, t:"6–8"},
+    {n:"Тяга гантели в наклоне", s:3, t:"8–12"},
+    {n:"Сгибание ног в тренажёре", s:3, t:"10–15"},
+    {n:"Махи гантелями в стороны", s:3, t:"12–15"},
+    {n:"Сгибание рук с гантелями", s:2, t:"10–15"}]},
+  F:{name:"Функционал", ex:[
+    {n:"Махи гирей", s:4, t:"× 15"},
+    {n:"Прогулка фермера", s:4, t:"30 м", u:["кг","м"]},
+    {n:"Круг: гребля 250 м, тумба, медбол, медведь", s:1, t:"4 раунда", u:["раундов","мин всего"]},
+    {n:"Интервалы на велотренажёре", s:1, t:"6 × 30/90 с", u:["интервалов","уровень"]}]},
+  B:{name:"Кач B", ex:[
+    {n:"Румынская тяга", s:4, t:"8–10"},
+    {n:"Подтягивания / верхний блок", s:4, t:"6–10"},
+    {n:"Жим штанги стоя", s:3, t:"6–8"},
+    {n:"Жим ногами", s:3, t:"10–12"},
+    {n:"Жим гантелей на наклонной", s:3, t:"8–12"},
+    {n:"Обратная бабочка", s:2, t:"15"},
+    {n:"Разгибание рук на блоке", s:2, t:"10–15"}]}
+};
+const U=["кг","повт"];
+const $=id=>document.getElementById(id);
+const local={
+  get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},
+  set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+
+/* ---------- Telegram ---------- */
+const TG=(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData)?Telegram.WebApp:null;
+const CS=(TG&&TG.CloudStorage&&TG.isVersionAtLeast&&TG.isVersionAtLeast("6.9"))?TG.CloudStorage:null;
+if(TG){
+  try{TG.ready();TG.expand();
+    const sync=()=>document.documentElement.setAttribute("data-theme",TG.colorScheme==="dark"?"dark":"light");
+    sync();TG.onEvent("themeChanged",sync);
+  }catch(e){}
+}
+function haptic(kind){try{TG&&TG.HapticFeedback&&TG.HapticFeedback.notificationOccurred(kind)}catch(e){}}
+function timeout(p,ms){return Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms))])}
+const cloud={
+  call(fn,...args){return timeout(new Promise((res,rej)=>CS[fn](...args,(err,val)=>err?rej(new Error(err)):res(val))),10000)},
+  keys(){return this.call("getKeys")},
+  getMany(keys){return this.call("getItems",keys)},
+  set(k,v){return this.call("setItem",k,v)},
+  del(k){return this.call("removeItem",k)}
+};
+
+/* ---------- state ---------- */
+// Compact stored form (Telegram limit: 4096 chars per record):
+// {d:date, w:"A", e:[[name,[[a,b],...],u?]], r:rpe, k:knee, bw, n:note, t:createdAt}
+let logs=local.get("cache")||[];        // last known records from the cloud
+let pending=local.get("pending")||[];   // saved on the phone, not yet sent
+function today(){const d=new Date();return new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10)}
+function defaultW(){const d=new Date().getDay();return d===3?"F":d===5?"B":"A"}
+function blank(w){return {w,sets:PLAN[w].ex.map(e=>Array.from({length:e.s},()=>["",""])),rpe:null,knee:null,bw:"",note:""}}
+function fresh(w){const d=local.get("draft-"+w);return d&&d.sets&&d.sets.length===PLAN[w].ex.length?d:blank(w)}
+let cur=fresh(defaultW());
+$("date").value=today();
+
+function allLogs(){
+  const ids=new Set(logs.map(l=>l.id));
+  return pending.filter(p=>!ids.has(p.id)).map(p=>Object.assign({_p:true},p)).concat(logs)
+    .sort((a,b)=>(b.d||"").localeCompare(a.d||"")||(b.t||0)-(a.t||0));
+}
+function lastSets(w,name){
+  const l=allLogs().find(x=>x.w===w); if(!l) return null;
+  const e=(l.e||[]).find(x=>x[0]===name); return e?{date:l.d,sets:e[1]}:null;
+}
+const fmtSet=s=>(s[0]||"—")+"×"+(s[1]||"—");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------- form ---------- */
+function renderEx(){
+  document.querySelectorAll("#seg button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.w===cur.w)));
+  $("exlist").innerHTML=PLAN[cur.w].ex.map((e,i)=>{
+    const u=e.u||U,last=lastSets(cur.w,e.n);
+    const rows=cur.sets[i].map((s,j)=>{
+      const ls=last&&last.sets[j];
+      return `<div class="row"><span class="i">${j+1}</span>
+        <input id="s-${i}-${j}-0" inputmode="decimal" aria-label="${esc(e.n)}, подход ${j+1}, ${u[0]}" value="${esc(s[0])}" placeholder="${ls?esc(ls[0]||""):""}">
+        <span class="x">×</span>
+        <input id="s-${i}-${j}-1" inputmode="numeric" aria-label="${esc(e.n)}, подход ${j+1}, ${u[1]}" value="${esc(s[1])}" placeholder="${ls?esc(ls[1]||""):""}"></div>`;
+    }).join("");
+    const lastLine=last?`<div class="last">Прошлый раз (${esc(last.date)}): <b>${last.sets.map(fmtSet).join(", ")}</b></div>`:"";
+    return `<article class="ex"><div class="ex-h"><span class="ex-n">${esc(e.n)}</span><span class="tgt">${e.s} × ${esc(e.t)}</span></div>
+      <div class="units"><span></span><span>${u[0]}</span><span></span><span>${u[1]}</span></div>
+      <div class="sets">${rows}</div>${lastLine}</article>`;
+  }).join("");
+  renderScales();$("bw").value=cur.bw||"";$("nt").value=cur.note||"";
+}
+function renderScales(){
+  $("rpe").innerHTML=Array.from({length:10},(_,k)=>k+1).map(v=>`<button type="button" data-v="${v}" aria-pressed="${cur.rpe===v}">${v}</button>`).join("");
+  $("knee").innerHTML=Array.from({length:11},(_,k)=>k).map(v=>`<button type="button" data-v="${v}" aria-pressed="${cur.knee===v}">${v}</button>`).join("");
+}
+let draftT;function saveDraft(){clearTimeout(draftT);draftT=setTimeout(()=>local.set("draft-"+cur.w,cur),250)}
+function msg(t,kind){$("msg").textContent=t;$("msg").className="msg"+(kind?" "+kind:"")}
+
+$("exlist").addEventListener("input",e=>{
+  const m=e.target.id.match(/^s-(\d+)-(\d+)-(\d)$/);if(!m) return;
+  cur.sets[+m[1]][+m[2]][+m[3]]=e.target.value.trim().replace(",",".");saveDraft();
+});
+$("rpe").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.rpe=+v;renderScales();saveDraft()});
+$("knee").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.knee=+v;renderScales();saveDraft()});
+$("bw").addEventListener("input",e=>{cur.bw=e.target.value.trim().replace(",",".");saveDraft()});
+$("nt").addEventListener("input",e=>{cur.note=e.target.value;saveDraft()});
+$("seg").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b||b.dataset.w===cur.w)return;
+  local.set("draft-"+cur.w,cur);cur=fresh(b.dataset.w);msg("");renderEx();
+});
+$("clear").addEventListener("click",()=>{cur=blank(cur.w);local.set("draft-"+cur.w,null);msg("");renderEx()});
+
+function buildRecord(){
+  const p=PLAN[cur.w];
+  const e=p.ex.map((x,i)=>{
+    const sets=cur.sets[i].filter(s=>s[0]!==""||s[1]!=="").map(s=>[s[0],s[1]]);
+    return x.u?[x.n,sets,x.u]:[x.n,sets];
+  }).filter(x=>x[1].length);
+  const t=Date.now();
+  const r={id:"w_"+t.toString(36),d:$("date").value||today(),w:cur.w,e,t};
+  if(cur.rpe!=null) r.r=cur.rpe; if(cur.knee!=null) r.k=cur.knee;
+  if(cur.bw) r.bw=cur.bw; if((cur.note||"").trim()) r.n=cur.note.trim();
+  return r;
+}
+function serialize(r){const {id,_p,...b}=r;let s=JSON.stringify(b);
+  while(s.length>4096&&b.n){b.n=b.n.slice(0,Math.max(0,b.n.length-(s.length-4096)-10));s=JSON.stringify(b)}
+  return s;}
+
+$("save").addEventListener("click",async()=>{
+  const r=buildRecord();
+  if(!r.e.length){msg("Заполни хотя бы один подход.","err");haptic("error");return}
+  pending.push(r);local.set("pending",pending);
+  cur=blank(cur.w);local.set("draft-"+cur.w,null);renderEx();renderHist();
+  haptic("success");
+  if(!CS){msg("Сохранено на этом телефоне.","ok");return}
+  msg("Сохранено на телефоне. Отправляю в Телеграм…","ok");
+  const ok=await syncPending();
+  msg(ok?"Сохранено. Отчёт можно скопировать в истории ниже."
+        :"Сохранено на телефоне. Отправится само, когда появится интернет.","ok");
+});
+
+/* ---------- cloud sync ---------- */
+let syncing=false;
+async function syncPending(){
+  if(!CS||syncing||!pending.length) return !pending.length;
+  syncing=true;
+  try{
+    for(const r of pending.slice()){
+      try{await cloud.set(r.id,serialize(r))}catch(e){break}
+      pending=pending.filter(x=>x.id!==r.id);local.set("pending",pending);
+      const {_p,...clean}=r; logs=logs.filter(x=>x.id!==r.id).concat([clean]); local.set("cache",logs);
+    }
+  }finally{syncing=false}
+  renderHist();
+  return !pending.length;
+}
+async function loadCloud(){
+  try{
+    const keys=(await cloud.keys()).filter(k=>k.startsWith("w_"));
+    const out=[];
+    for(let i=0;i<keys.length;i+=50){
+      const vals=await cloud.getMany(keys.slice(i,i+50));
+      for(const k in vals){try{const o=JSON.parse(vals[k]);if(o&&o.w)out.push(Object.assign({id:k},o))}catch(e){}}
+    }
+    logs=out;local.set("cache",logs);
+    $("mode").hidden=true;
+    renderHist();renderEx();
+    syncPending();
+  }catch(e){
+    $("mode").hidden=false;
+    $("mode").textContent="Нет связи с Телеграмом. Показываю сохранённое на телефоне, новые записи отправятся позже.";
+  }
+}
+
+/* ---------- history ---------- */
+function reportText(l){
+  const lines=[`${PLAN[l.w]?PLAN[l.w].name:l.w}, ${l.d}`];
+  (l.e||[]).forEach(x=>{const u=x[2];lines.push(`${x[0]}: ${x[1].map(fmtSet).join(", ")}${u?` (${u[0]} × ${u[1]})`:""}`)});
+  const st=[];if(l.r!=null)st.push(`тяжесть ${l.r}/10`);if(l.k!=null)st.push(`колено ${l.k}/10`);if(l.bw)st.push(`вес тела ${l.bw} кг`);
+  if(st.length)lines.push(st.join(", "));if(l.n)lines.push("Заметка: "+l.n);
+  return lines.join("\n");
+}
+function renderHist(){
+  const all=allLogs();
+  if(!all.length){$("hist").innerHTML=`<div class="empty">Пока нет записей. Заполни подходы и нажми «Сохранить тренировку» — запись появится здесь.</div>`;return}
+  $("hist").innerHTML=all.map(l=>{
+    const meta=l._p?`<span class="wait">ждёт интернета</span>`:[l.r!=null?`тяж ${l.r}`:"",l.k!=null?`кол ${l.k}`:""].filter(Boolean).join(" · ");
+    return `<details class="h" data-id="${esc(l.id)}"><summary><span class="hd">${esc(l.d)}</span><span class="hw">${esc(PLAN[l.w]?PLAN[l.w].name:"")}</span><span class="hm">${meta}</span></summary>
+      <div class="hb"><pre>${esc(reportText(l))}</pre><div class="actions">
+      <button class="btn sm" type="button" data-act="copy">Скопировать отчёт</button>
+      <button class="btn sm" type="button" data-act="del">Удалить</button></div></div></details>`;
+  }).join("");
+}
+$("hist").addEventListener("click",async e=>{
+  const b=e.target.closest("button[data-act]");if(!b)return;
+  const id=b.closest("details").dataset.id,l=allLogs().find(x=>x.id===id);if(!l)return;
+  if(b.dataset.act==="copy"){
+    const t=reportText(l);
+    try{await navigator.clipboard.writeText(t);b.textContent="Скопировано";haptic("success")}
+    catch(err){const r=document.createRange();r.selectNodeContents(b.closest(".hb").querySelector("pre"));const s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Текст выделен — скопируй"}
+    setTimeout(()=>{if(b.isConnected)b.textContent="Скопировать отчёт"},2500);
+  }else if(b.dataset.act==="del"){
+    b.dataset.act="really";b.textContent="Точно удалить?";b.classList.add("danger");
+    setTimeout(()=>{if(b.isConnected&&b.dataset.act==="really"){b.dataset.act="del";b.textContent="Удалить";b.classList.remove("danger")}},4000);
+  }else if(b.dataset.act==="really"){
+    if(l._p){pending=pending.filter(x=>x.id!==id);local.set("pending",pending)}
+    else{
+      if(CS){try{await cloud.del(id)}catch(err){msg("Не удалось удалить: нет связи. Попробуй, когда появится интернет.","err");return}}
+      logs=logs.filter(x=>x.id!==id);local.set("cache",logs);
+    }
+    renderHist();renderEx();
+  }
+});
+
+/* ---------- start ---------- */
+renderEx();renderHist();
+if(CS){loadCloud();window.addEventListener("online",()=>loadCloud());setInterval(()=>{if(pending.length)syncPending()},30000)}
+else{$("mode").hidden=false;$("mode").textContent=TG
+  ?"Обнови Телеграм: эта версия не умеет хранить записи в аккаунте. Пока записи хранятся на телефоне."
+  :"Открыто не в Телеграме: записи хранятся только в этом браузере."}
+</script>
+</body>
+</html>
