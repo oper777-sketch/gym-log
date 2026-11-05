@@ -120,6 +120,8 @@ details.h summary::-webkit-details-marker{display:none}
     <div>
       <h1>Дневник тренировок</h1>
       <p class="sub">Вес и повторы по подходам. Серые подсказки — прошлый раз.</p>
+      <p class="sub">План от 05.11.2026 · облегчённая неделя</p>
+      <button type="button" class="btn sm" id="app-refresh">Обновить приложение</button>
     </div>
     <label class="f" for="date">Дата<input type="date" id="date"></label>
   </header>
@@ -326,6 +328,12 @@ function renderScales(){
   $("knee").innerHTML=Array.from({length:11},(_,k)=>k).map(v=>`<button type="button" data-v="${v}" aria-pressed="${cur.knee===v}">${v}</button>`).join("");
 }
 let draftT;function saveDraft(){clearTimeout(draftT);draftT=setTimeout(()=>local.set("draft-"+cur.w,cur),250)}
+$("app-refresh").addEventListener("click",()=>{
+  clearTimeout(draftT);local.set("draft-"+cur.w,cur);
+  const url=new URL(location.href);
+  url.searchParams.set("_refresh",String(Date.now()));
+  location.replace(url.href);
+});
 function msg(t,kind){$("msg").textContent=t;$("msg").className="msg"+(kind?" "+kind:"")}
 
 $("exlist").addEventListener("input",e=>{
