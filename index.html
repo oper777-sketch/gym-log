@@ -69,6 +69,8 @@ input[type=date]{width:auto}
 .units{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;text-align:center}
 .last{font-size:.8rem;color:var(--muted)}
 .last b{font-family:var(--f-num);font-weight:500;color:var(--ink)}
+.exq{display:flex;flex-direction:column;gap:5px;font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.exq .scale button{font-size:.8rem}
 .next{font-size:.8rem;color:var(--muted)}
 .next b{color:var(--accent);font-weight:600}
 .tech{border-top:1px solid var(--line);padding-top:8px}
@@ -256,17 +258,19 @@ const cloud={
 
 /* ---------- state ---------- */
 // Compact stored form (Telegram limit: 4096 chars per record):
-// {d:date, w:"A", e:[[name,[[a,b],...],u?]], r:rpe, k:knee, bw, n:note, t:createdAt}
+// {d:date, w:"A", e:[[name,[[a,b],...],u?,q?]], r:rpe, k:knee, bw, n:note, t:createdAt}
+// u — units or 0 when default; q — exercise difficulty 1–10 (optional, added 17.11.2026)
 let logs=local.get("cache")||[];        // last known records from the cloud
 let pending=local.get("pending")||[];   // saved on the phone, not yet sent
 function today(){const d=new Date();return new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10)}
 function defaultW(){const d=new Date().getDay();return d===3?"F":d===5?"B":"A"}
 // Drafts survive set-count updates when exercise names and order are unchanged.
 const sig=w=>PLAN[w].ex.map(e=>e.n+"/"+e.s).join("|");
-function blank(w){return {w,sig:sig(w),sets:PLAN[w].ex.map(e=>Array.from({length:e.s},()=>["",""])),rpe:null,knee:null,bw:"",note:""}}
+function blank(w){return {w,sig:sig(w),sets:PLAN[w].ex.map(e=>Array.from({length:e.s},()=>["",""])),q:PLAN[w].ex.map(()=>null),rpe:null,knee:null,bw:"",note:""}}
 function fresh(w){
   const d=local.get("draft-"+w), current=sig(w);
   if(!d) return blank(w);
+  if(!Array.isArray(d.q)||d.q.length!==PLAN[w].ex.length) d.q=PLAN[w].ex.map((_,i)=>Array.isArray(d.q)&&d.q[i]!=null?d.q[i]:null);
   if(d.sig===current) return d;
   // Preserve entered sets when only the prescribed set counts change.
   const names=s=>String(s||"").replace(/\/\d+(?=\||$)/g,"");
@@ -289,9 +293,10 @@ function allLogs(){
 }
 function lastSets(w,name){
   const l=allLogs().find(x=>x.w===w); if(!l) return null;
-  const e=(l.e||[]).find(x=>x[0]===name); return e?{date:l.d,sets:e[1]}:null;
+  const e=(l.e||[]).find(x=>x[0]===name); return e?{date:l.d,sets:e[1],q:e[3]}:null;
 }
 const fmtSet=s=>(s[0]||"—")+"×"+(s[1]||"—");
+const qScale=i=>Array.from({length:10},(_,k)=>k+1).map(v=>`<button type="button" data-q="${i}" data-v="${v}" aria-pressed="${cur.q[i]===v}">${v}</button>`).join("");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 /* ---------- form ---------- */
@@ -310,11 +315,12 @@ function renderEx(){
         <span class="x">×</span>
         <input id="s-${i}-${j}-1" inputmode="numeric" aria-label="${esc(e.n)}, подход ${j+1}, ${u[1]}" value="${esc(s[1])}" placeholder="${ls?esc(ls[1]||""):""}"></div>`;
     }).join("");
-    const lastLine=last?`<div class="last">Прошлый раз (${esc(last.date)}): <b>${last.sets.map(fmtSet).join(", ")}</b></div>`:"";
+    const lastLine=last?`<div class="last">Прошлый раз (${esc(last.date)}): <b>${last.sets.map(fmtSet).join(", ")}</b>${last.q?` · тяжесть <b>${esc(last.q)}</b>`:""}</div>`:"";
+    const qLine=`<div class="exq" role="group" aria-label="${esc(e.n)}: тяжесть упражнения">Тяжесть упражнения: 1 — легко, 10 — предел<div class="scale ten" id="q-${i}">${qScale(i)}</div></div>`;
     const nextLine=e.r?`<div class="next">К следующему разу: <b>${esc(e.r)}</b></div>`:"";
     return `<article class="ex"><div class="ex-h"><span class="ex-n">${esc(e.n)}</span><span class="tgt">${e.s} × ${esc(e.t)}</span></div>
       <div class="units"><span></span><span>${u[0]}</span><span></span><span>${u[1]}</span></div>
-      <div class="sets">${rows}</div>${lastLine}${nextLine}
+      <div class="sets">${rows}</div>${qLine}${lastLine}${nextLine}
       <details class="tech" data-i="${i}"${openTech.has(cur.w+i)?" open":""}><summary>Техника</summary>
       <p><b>Как делать.</b> ${esc(e.h)}</p><p class="err"><b>Ошибки.</b> ${esc(e.m)}</p></details></article>`;
   }).join("");
@@ -337,6 +343,12 @@ $("exlist").addEventListener("input",e=>{
   const m=e.target.id.match(/^s-(\d+)-(\d+)-(\d)$/);if(!m) return;
   cur.sets[+m[1]][+m[2]][+m[3]]=e.target.value.trim().replace(",",".");saveDraft();
 });
+$("exlist").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-q]");if(!b) return;
+  const i=+b.dataset.q,v=+b.dataset.v;
+  cur.q[i]=cur.q[i]===v?null:v;   // tap the chosen number again to clear it
+  $("q-"+i).innerHTML=qScale(i);saveDraft();
+});
 $("exlist").addEventListener("toggle",e=>{const d=e.target;if(!d.classList||!d.classList.contains("tech"))return;const k=cur.w+d.dataset.i;d.open?openTech.add(k):openTech.delete(k)},true);
 $("rpe").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.rpe=+v;renderScales();saveDraft()});
 $("knee").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.knee=+v;renderScales();saveDraft()});
@@ -352,7 +364,8 @@ function buildRecord(){
   const p=PLAN[cur.w];
   const e=p.ex.map((x,i)=>{
     const sets=cur.sets[i].filter(s=>s[0]!==""||s[1]!=="").map(s=>[s[0],s[1]]);
-    return x.u?[x.n,sets,x.u]:[x.n,sets];
+    const q=cur.q[i];
+    return q!=null?[x.n,sets,x.u||0,q]:x.u?[x.n,sets,x.u]:[x.n,sets];
   }).filter(x=>x[1].length);
   const t=Date.now();
   const r={id:"w_"+t.toString(36),d:$("date").value||today(),w:cur.w,e,t};
@@ -413,7 +426,7 @@ async function loadCloud(){
 /* ---------- history ---------- */
 function reportText(l){
   const lines=[`${PLAN[l.w]?PLAN[l.w].name:l.w}, ${l.d}`];
-  (l.e||[]).forEach(x=>{const u=x[2];lines.push(`${x[0]}: ${x[1].map(fmtSet).join(", ")}${u?` (${u[0]} × ${u[1]})`:""}`)});
+  (l.e||[]).forEach(x=>{const u=x[2],q=x[3];lines.push(`${x[0]}: ${x[1].map(fmtSet).join(", ")}${u?` (${u[0]} × ${u[1]})`:""}${q?` — тяжесть ${q}/10`:""}`)});
   const st=[];if(l.r!=null)st.push(`тяжесть ${l.r}/10`);if(l.k!=null)st.push(`колено ${l.k}/10`);if(l.bw)st.push(`вес тела ${l.bw} кг`);
   if(st.length)lines.push(st.join(", "));if(l.n)lines.push("Заметка: "+l.n);
   return lines.join("\n");
