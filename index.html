@@ -91,6 +91,7 @@ details.blk ol{margin:0;padding:0 14px 14px 36px;display:flex;flex-direction:col
 .check{display:flex;flex-direction:column;gap:14px;background:var(--surface);border-radius:14px;padding:14px}
 .scale{display:grid;grid-template-columns:repeat(11,1fr);gap:3px}
 .scale.ten{grid-template-columns:repeat(10,1fr)}
+.scale.five{grid-template-columns:repeat(5,1fr)}
 .scale button{font:500 .85rem var(--f-num);padding:9px 0;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:7px;cursor:pointer;min-width:0}
 .scale button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .two{display:grid;grid-template-columns:130px 1fr;gap:12px}
@@ -133,6 +134,16 @@ details.h summary::-webkit-details-marker{display:none}
     <button type="button" data-w="F">Функционал<small>ср</small></button>
     <button type="button" data-w="B">Кач B<small>пт</small></button>
   </nav>
+
+  <section class="check" aria-label="Перед тренировкой">
+    <h2>Перед тренировкой</h2>
+    <div class="f">Энергия: 0 — нет сил, 10 — полон сил<div class="scale" id="en"></div></div>
+    <div class="two">
+      <label class="f" for="sl">Сон, часов<input id="sl" inputmode="decimal" placeholder="например, 7.5"></label>
+      <div class="f">Качество сна: 1 — плохо, 5 — отлично<div class="scale five" id="sq"></div></div>
+    </div>
+    <label class="f" for="st">Самочувствие<input id="st" placeholder="стресс, болит что-то, мало ел — если есть"></label>
+  </section>
 
   <details class="blk"><summary><span class="bt">Разминка</span><span class="bm">10–12 мин</span></summary>
     <ol>
@@ -204,7 +215,7 @@ const PLAN = {
     {n:"Интервалы на айрбайке", s:1, t:"5 × 30/90 с", r:"5 интервалов: 30 с работы / 90 с легко, усилие около 6–7/10; калории записать по факту", u:["интервалов","кал всего"],
      h:"На этой неделе — 5 интервалов с усилием около 6–7/10. В обычной программе: 30 секунд интенсивно на 7 из 10 (пока идёт дефицит — 6–7), затем 90 секунд легко. Работают руки и ноги: толкай и тяни рукояти, корпус ровный. Айрбайк тяжелее обычного велотренажёра, первые разы держи 6 из 10. Седло на высоте, при которой нога внизу почти прямая. В конце запиши калории с экрана за всю серию.",
      m:"Слишком низкое седло (нагружает колено); работать одними ногами; выложиться в первом интервале и не доделать остальные."}]},
-  B:{name:"Кач B", tip:"Ещё одна облегчённая неделя: две последние пятницы шли тяжелее остальных дней. Веса и подходы как 13.11, запас 2–3 повтора. В заметке запиши энергию до занятия (0–10) и сколько спал накануне. Если снова будет тяжелее, чем в понедельник и среду, — со следующей недели попробуем ставить Кач B на четверг. Разминку делай отдельно.", ex:[
+  B:{name:"Кач B", tip:"Ещё одна облегчённая неделя: две последние пятницы шли тяжелее остальных дней. Веса и подходы как 13.11, запас 2–3 повтора. Перед началом заполни блок «Перед тренировкой»: энергия и сон. Если снова будет тяжелее, чем в понедельник и среду, — со следующей недели попробуем ставить Кач B на четверг. Разминку делай отдельно.", ex:[
     {n:"Румынская тяга", s:3, t:"8–10", r:"65 кг, 3 подхода с запасом 2–3 повтора",
      h:"Колени чуть согнуты и не меняют угол. Отводи таз назад, гриф скользит по ногам до середины голени, спина ровная. Вставай, сжимая ягодицы.",
      m:"Круглая спина; приседание вместо наклона; гриф уходит от ног."},
@@ -260,13 +271,14 @@ const cloud={
 // Compact stored form (Telegram limit: 4096 chars per record):
 // {d:date, w:"A", e:[[name,[[a,b],...],u?,q?]], r:rpe, k:knee, bw, n:note, t:createdAt}
 // u — units or 0 when default; q — exercise difficulty 1–10 (optional, added 17.11.2026)
+// Before the workout (optional, added 20.11.2026): en — energy 0–10, sl — sleep hours, sq — sleep quality 1–5, st — state note
 let logs=local.get("cache")||[];        // last known records from the cloud
 let pending=local.get("pending")||[];   // saved on the phone, not yet sent
 function today(){const d=new Date();return new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10)}
 function defaultW(){const d=new Date().getDay();return d===3?"F":d===5?"B":"A"}
 // Drafts survive set-count updates when exercise names and order are unchanged.
 const sig=w=>PLAN[w].ex.map(e=>e.n+"/"+e.s).join("|");
-function blank(w){return {w,sig:sig(w),sets:PLAN[w].ex.map(e=>Array.from({length:e.s},()=>["",""])),q:PLAN[w].ex.map(()=>null),rpe:null,knee:null,bw:"",note:""}}
+function blank(w){return {w,sig:sig(w),sets:PLAN[w].ex.map(e=>Array.from({length:e.s},()=>["",""])),q:PLAN[w].ex.map(()=>null),en:null,sl:"",sq:null,st:"",rpe:null,knee:null,bw:"",note:""}}
 function fresh(w){
   const d=local.get("draft-"+w), current=sig(w);
   if(!d) return blank(w);
@@ -305,7 +317,7 @@ function renderEx(){
   document.querySelectorAll("#seg button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.w===cur.w)));
   const first=PLAN[cur.w].ex[0].n;$("wfirst").textContent=first[0].toLowerCase()+first.slice(1);
   const tip=PLAN[cur.w].tip?`<div class="note">${esc(PLAN[cur.w].tip)}</div>`:"";
-  const recovery='<details class="blk"><summary><span class="bt">Восстановление на этой неделе</span></summary><ol><li>Средний вес за неделю почти не меняется (около 81 кг), поэтому калории пока не меняй и дефицит не усиливай. Ориентир снижения — около 0,5% в неделю по средним утренним значениям.</li><li>Перед каждой тренировкой запиши в заметке энергию до занятия (0–10) и сколько спал накануне. Так станет понятно, почему к пятнице сил меньше.</li><li>Перед залом — привычная еда с углеводами и белком.</li><li>Веса повышаем только после недели с полными подходами, если тяжесть останется около 6–7/10.</li><li>Проверь колено утром после приседа и жима ногами. Если усталость появляется вне зала и сохраняется — обсуди её с врачом.</li></ol></details>';
+  const recovery='<details class="blk"><summary><span class="bt">Восстановление на этой неделе</span></summary><ol><li>Средний вес за неделю почти не меняется (около 81 кг), поэтому калории пока не меняй и дефицит не усиливай. Ориентир снижения — около 0,5% в неделю по средним утренним значениям.</li><li>Перед каждой тренировкой заполни блок «Перед тренировкой» вверху: энергия, сон и самочувствие. Так станет понятно, почему к пятнице сил меньше.</li><li>Перед залом — привычная еда с углеводами и белком.</li><li>Веса повышаем только после недели с полными подходами, если тяжесть останется около 6–7/10.</li><li>Проверь колено утром после приседа и жима ногами. Если усталость появляется вне зала и сохраняется — обсуди её с врачом.</li></ol></details>';
   $("exlist").innerHTML=tip+recovery+PLAN[cur.w].ex.map((e,i)=>{
     const u=e.u||U,last=lastSets(cur.w,e.n);
     const rows=cur.sets[i].map((s,j)=>{
@@ -325,8 +337,11 @@ function renderEx(){
       <p><b>Как делать.</b> ${esc(e.h)}</p><p class="err"><b>Ошибки.</b> ${esc(e.m)}</p></details></article>`;
   }).join("");
   renderScales();$("bw").value=cur.bw||"";$("nt").value=cur.note||"";
+  $("sl").value=cur.sl||"";$("st").value=cur.st||"";
 }
 function renderScales(){
+  $("en").innerHTML=Array.from({length:11},(_,k)=>k).map(v=>`<button type="button" data-v="${v}" aria-pressed="${cur.en===v}">${v}</button>`).join("");
+  $("sq").innerHTML=Array.from({length:5},(_,k)=>k+1).map(v=>`<button type="button" data-v="${v}" aria-pressed="${cur.sq===v}">${v}</button>`).join("");
   $("rpe").innerHTML=Array.from({length:10},(_,k)=>k+1).map(v=>`<button type="button" data-v="${v}" aria-pressed="${cur.rpe===v}">${v}</button>`).join("");
   $("knee").innerHTML=Array.from({length:11},(_,k)=>k).map(v=>`<button type="button" data-v="${v}" aria-pressed="${cur.knee===v}">${v}</button>`).join("");
 }
@@ -352,6 +367,10 @@ $("exlist").addEventListener("click",e=>{
 $("exlist").addEventListener("toggle",e=>{const d=e.target;if(!d.classList||!d.classList.contains("tech"))return;const k=cur.w+d.dataset.i;d.open?openTech.add(k):openTech.delete(k)},true);
 $("rpe").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.rpe=+v;renderScales();saveDraft()});
 $("knee").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.knee=+v;renderScales();saveDraft()});
+$("en").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.en=cur.en===+v?null:+v;renderScales();saveDraft()});
+$("sq").addEventListener("click",e=>{const v=e.target.dataset.v;if(v==null)return;cur.sq=cur.sq===+v?null:+v;renderScales();saveDraft()});
+$("sl").addEventListener("input",e=>{cur.sl=e.target.value.trim().replace(",",".");saveDraft()});
+$("st").addEventListener("input",e=>{cur.st=e.target.value;saveDraft()});
 $("bw").addEventListener("input",e=>{cur.bw=e.target.value.trim().replace(",",".");saveDraft()});
 $("nt").addEventListener("input",e=>{cur.note=e.target.value;saveDraft()});
 $("seg").addEventListener("click",e=>{
@@ -371,10 +390,13 @@ function buildRecord(){
   const r={id:"w_"+t.toString(36),d:$("date").value||today(),w:cur.w,e,t};
   if(cur.rpe!=null) r.r=cur.rpe; if(cur.knee!=null) r.k=cur.knee;
   if(cur.bw) r.bw=cur.bw; if((cur.note||"").trim()) r.n=cur.note.trim();
+  if(cur.en!=null) r.en=cur.en; if(cur.sl) r.sl=cur.sl; if(cur.sq!=null) r.sq=cur.sq;
+  if((cur.st||"").trim()) r.st=cur.st.trim();
   return r;
 }
 function serialize(r){const {id,_p,...b}=r;let s=JSON.stringify(b);
   while(s.length>4096&&b.n){b.n=b.n.slice(0,Math.max(0,b.n.length-(s.length-4096)-10));s=JSON.stringify(b)}
+  while(s.length>4096&&b.st){b.st=b.st.slice(0,Math.max(0,b.st.length-(s.length-4096)-10));s=JSON.stringify(b)}
   return s;}
 
 $("save").addEventListener("click",async()=>{
@@ -426,6 +448,8 @@ async function loadCloud(){
 /* ---------- history ---------- */
 function reportText(l){
   const lines=[`${PLAN[l.w]?PLAN[l.w].name:l.w}, ${l.d}`];
+  const pre=[];if(l.en!=null)pre.push(`энергия ${l.en}/10`);if(l.sl)pre.push(`сон ${l.sl} ч`);if(l.sq!=null)pre.push(`качество сна ${l.sq}/5`);if(l.st)pre.push(`самочувствие: ${l.st}`);
+  if(pre.length)lines.push("До тренировки: "+pre.join(", "));
   (l.e||[]).forEach(x=>{const u=x[2],q=x[3];lines.push(`${x[0]}: ${x[1].map(fmtSet).join(", ")}${u?` (${u[0]} × ${u[1]})`:""}${q?` — тяжесть ${q}/10`:""}`)});
   const st=[];if(l.r!=null)st.push(`тяжесть ${l.r}/10`);if(l.k!=null)st.push(`колено ${l.k}/10`);if(l.bw)st.push(`вес тела ${l.bw} кг`);
   if(st.length)lines.push(st.join(", "));if(l.n)lines.push("Заметка: "+l.n);
@@ -435,7 +459,7 @@ function renderHist(){
   const all=allLogs();
   if(!all.length){$("hist").innerHTML=`<div class="empty">Пока нет записей. Заполни подходы и нажми «Сохранить тренировку» — запись появится здесь.</div>`;return}
   $("hist").innerHTML=all.map(l=>{
-    const meta=l._p?`<span class="wait">ждёт интернета</span>`:[l.r!=null?`тяж ${l.r}`:"",l.k!=null?`кол ${l.k}`:""].filter(Boolean).join(" · ");
+    const meta=l._p?`<span class="wait">ждёт интернета</span>`:[l.en!=null?`эн ${l.en}`:"",l.r!=null?`тяж ${l.r}`:"",l.k!=null?`кол ${l.k}`:""].filter(Boolean).join(" · ");
     return `<details class="h" data-id="${esc(l.id)}"><summary><span class="hd">${esc(l.d)}</span><span class="hw">${esc(PLAN[l.w]?PLAN[l.w].name:"")}</span><span class="hm">${meta}</span></summary>
       <div class="hb"><pre>${esc(reportText(l))}</pre><div class="actions">
       <button class="btn sm" type="button" data-act="copy">Скопировать отчёт</button>
